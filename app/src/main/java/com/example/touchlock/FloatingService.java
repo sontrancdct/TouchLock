@@ -2,60 +2,325 @@ package com.example.touchlock;
 
 import android.annotation.SuppressLint;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.view.animation.Animation;
+import android.view.animation.AnimationUtils;
 import android.widget.Button;
 import android.widget.ImageButton;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
 
 import androidx.annotation.Nullable;
 
 public class FloatingService extends Service implements View.OnTouchListener, View.OnClickListener {
-   private WindowManager mWindowManager;
+   private WindowManager mWindowManager, windowManagerClose;
    private MyGroupView mViewIcon;
    private MyGroupView mViewLock;
    private WindowManager.LayoutParams mIconviewParams;
    private WindowManager.LayoutParams mLockviewParams;
+   private WindowManager.LayoutParams _closeParams;
+
+   private ImageView close;
+   private LinearLayout layout;
+   private MoveAnimator animator;
+   private Animation shake;
+   private Context context;
+
+   private int screen_width;
+   private int screen_height;
 
    private int state;
    private int i =0;
    private static final int TYPE_ICON = 0;
    private static final int TYPE_LOCK = 1;
 
-   private int previousX;
-   private int previousY;
-   private float mStartX;
-   private float mStartY;
-
    ImageButton imageButton;
-   ImageButton imageButtonRemove;
+   private int initialX;
+   private int initialY;
+   private float initialTouchX;
+   private float initialTouchY;
 
    @Nullable
    @Override
    public IBinder onBind(Intent intent) {
       return null;
    }
-
    @Override
    public int onStartCommand(Intent intent, int flags, int startId) {
-      initView();
+      Visibility();
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+         _closeParams = new WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT);
+      }
+      _closeParams.gravity = Gravity.BOTTOM | Gravity.CENTER;
+      _closeParams.x = 0;
+      _closeParams.y = 100;
+
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+         mIconviewParams = new WindowManager.LayoutParams(
+            (int) (0.18 * screen_width),
+            (int) (0.18 * screen_width),
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+               | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+         );
+      }
+
+      mIconviewParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN;
+      mIconviewParams.x = screen_width / 2; // horizontal center for the image
+      mIconviewParams.y = 0;
+      mWindowManager.addView(mViewIcon, mIconviewParams);
+
+      windowManagerClose.addView(layout, _closeParams);
+      layout.setVisibility(View.INVISIBLE);
+      close.startAnimation(shake);
+
       return START_STICKY;
    }
-
-   private void initView() {
-      mWindowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
-      createIconView();
+   @Override
+   public void onCreate() {
+      super.onCreate();
+      createIconFloating();
       createLockView();
-      showIcon();
+      getScreenSize();
+      showFloating();
    }
+
+   @SuppressLint("ClickableViewAccessibility")
+   private void createIconFloating() {
+      mWindowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+      windowManagerClose = (WindowManager) getSystemService(WINDOW_SERVICE);
+      mViewIcon = new MyGroupView(this);
+      View view = View.inflate(this, R.layout.view_icon, mViewIcon);
+      mViewIcon.setOnTouchListener(this);
+
+      imageButton = view.findViewById(R.id.imageButtonIcon);
+      imageButton.setOnTouchListener(this);
+      imageButton.setOnClickListener(this);
+
+      close = new ImageView(this);
+      close.setImageResource(R.drawable.close);
+      shake = AnimationUtils.loadAnimation(getApplicationContext(), R.anim.wiggle);
+      shake.setRepeatCount(Animation.INFINITE);
+      layout = new LinearLayout(this);
+      layout.addView(close);
+      animator = new MoveAnimator();
+
+   }
+
+   @SuppressLint("ClickableViewAccessibility")
+   private void showFloating() {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+         _closeParams = new WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT);
+      }
+      _closeParams.gravity = Gravity.BOTTOM | Gravity.CENTER;
+      _closeParams.x = 0;
+      _closeParams.y = 100;
+
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+         mIconviewParams = new WindowManager.LayoutParams(
+            (int) (0.18 * screen_width),
+            (int) (0.18 * screen_width),
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+               | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+         );
+      }
+      mIconviewParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN;
+      mIconviewParams.x = screen_width / 2;
+      mIconviewParams.y = 0;
+
+      if (!mViewIcon.isShown()) {
+         mWindowManager.addView(mViewIcon, mIconviewParams);
+         windowManagerClose.addView(layout, _closeParams);
+         layout.setVisibility(View.INVISIBLE);
+         close.startAnimation(shake);
+
+      }
+   }
+    @Override
+   public boolean onTouch(View v, MotionEvent event) {
+      switch (event.getAction()){
+         case MotionEvent.ACTION_DOWN:
+            initialX = mIconviewParams.x;
+            initialY = mIconviewParams.y;
+            initialTouchX = event.getRawX();
+            initialTouchY = event.getRawY();
+            animator.stop();
+            break;
+         case MotionEvent.ACTION_UP:
+            if (MathUtil.betweenExclusive(mIconviewParams.x, -100, 100) && !MathUtil.betweenExclusive(mIconviewParams.y, screen_height / 3, screen_height / 2)) {
+               //moving to center range of screen
+               animator.start(screen_width / 2, mIconviewParams.y);
+               ViewGroup.LayoutParams layoutParams = mViewIcon.getLayoutParams();
+               layoutParams.width = (int) (0.18 * screen_width);
+               layoutParams.height = (int) (0.18 * screen_width);
+               mViewIcon.setLayoutParams(layoutParams);
+               mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
+               layout.setVisibility(View.INVISIBLE);
+
+            } else if (MathUtil.betweenExclusive((int) event.getRawX(), 0, screen_width / 5)) {
+               //move to left of screen
+               if (MathUtil.betweenExclusive((int) event.getRawY(), 0, screen_height / 10)) {
+                  // myParams.y = 0 ;
+                  animator.start(-screen_width / 2, -((screen_height / 2) - 150));
+                  ViewGroup.LayoutParams layoutParams = mViewIcon.getLayoutParams();
+                  layoutParams.width = (int) (0.18 * screen_width);
+                  layoutParams.height = (int) (0.18 * screen_width);
+                  mViewIcon.setLayoutParams(layoutParams);
+                  mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
+                  layout.setVisibility(View.INVISIBLE);
+               } else if (MathUtil.betweenExclusive((int) event.getRawY(), 9 * (screen_height / 10), screen_height)) {
+                  animator.start(-screen_width / 2, screen_height / 2 - 150);
+                  ViewGroup.LayoutParams layoutParams = mViewIcon.getLayoutParams();
+                  layoutParams.width = (int) (0.18 * screen_width);
+                  layoutParams.height = (int) (0.18 * screen_width);
+                  mViewIcon.setLayoutParams(layoutParams);
+                  mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
+                  layout.setVisibility(View.INVISIBLE);
+               } else {
+                  animator.start(-screen_width / 2, mIconviewParams.y);
+                  ViewGroup.LayoutParams layoutParams = mViewIcon.getLayoutParams();
+                  layoutParams.width = (int) (0.18 * screen_width);
+                  layoutParams.height = (int) (0.18 * screen_width);
+                  mViewIcon.setLayoutParams(layoutParams);
+                  mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
+                  layout.setVisibility(View.INVISIBLE);
+               }
+
+            } else if (MathUtil.betweenExclusive((int) event.getRawX(), screen_width - (screen_width / 5), screen_width)) {
+               //move to right of screen
+               if (MathUtil.betweenExclusive((int) event.getRawY(), 0, screen_height / 10)) {
+                  // myParams.y = 0 ;
+                  animator.start(screen_width / 2, -((screen_height / 2) - 150));
+                  ViewGroup.LayoutParams layoutParams = mViewIcon.getLayoutParams();
+                  layoutParams.width = (int) (0.18 * screen_width);
+                  layoutParams.height = (int) (0.18 * screen_width);
+                  mViewIcon.setLayoutParams(layoutParams);
+                  mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
+                  layout.setVisibility(View.INVISIBLE);
+               } else if (MathUtil.betweenExclusive((int) event.getRawY(), 9 * (screen_height / 10), screen_height)) {
+                  animator.start(screen_width / 2, screen_height / 2 - 150);
+                  ViewGroup.LayoutParams layoutParams = mViewIcon.getLayoutParams();
+                  layoutParams.width = (int) (0.18 * screen_width);
+                  layoutParams.height = (int) (0.18 * screen_width);
+                  mViewIcon.setLayoutParams(layoutParams);
+                  mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
+                  layout.setVisibility(View.INVISIBLE);
+               } else {
+                  animator.start(screen_width / 2, mIconviewParams.y);
+                  ViewGroup.LayoutParams layoutParams = mViewIcon.getLayoutParams();
+                  layoutParams.width = (int) (0.18 * screen_width);
+                  layoutParams.height = (int) (0.18 * screen_width);
+                  mViewIcon.setLayoutParams(layoutParams);
+                  mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
+                  layout.setVisibility(View.INVISIBLE);
+               }
+
+            } else if (MathUtil.betweenExclusive((int) event.getRawX(), screen_width / 5, 2 * (screen_width / 5))) {
+               //move to left of screen
+               if (MathUtil.betweenExclusive((int) event.getRawY(), 0, screen_height / 10)) {
+                  animator.start(-screen_width / 2, -((screen_height / 2) - 150));
+                  ViewGroup.LayoutParams layoutParams = mViewIcon.getLayoutParams();
+                  layoutParams.width = (int) (0.18 * screen_width);
+                  layoutParams.height = (int) (0.18 * screen_width);
+                  mViewIcon.setLayoutParams(layoutParams);
+                  mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
+                  layout.setVisibility(View.INVISIBLE);
+               } else if (MathUtil.betweenExclusive((int) event.getRawY(), 9 * (screen_height / 10), screen_height)) {
+                  animator.start(-screen_width / 2, screen_height / 2 - 150);
+                  ViewGroup.LayoutParams layoutParams = mViewIcon.getLayoutParams();
+                  layoutParams.width = (int) (0.18 * screen_width);
+                  layoutParams.height = (int) (0.18 * screen_width);
+                  mViewIcon.setLayoutParams(layoutParams);
+                  mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
+                  layout.setVisibility(View.INVISIBLE);
+               } else {
+                  animator.start(-screen_width / 2, mIconviewParams.y);
+                  ViewGroup.LayoutParams layoutParams = mViewIcon.getLayoutParams();
+                  layoutParams.width = (int) (0.18 * screen_width);
+                  layoutParams.height = (int) (0.18 * screen_width);
+                  mViewIcon.setLayoutParams(layoutParams);
+                  mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
+                  layout.setVisibility(View.INVISIBLE);
+               }
+            } else if (MathUtil.betweenExclusive((int) event.getRawX(), 3 * (screen_width / 5), screen_width)) {
+               //move to right of screen
+               if (MathUtil.betweenExclusive((int) event.getRawY(), 0, screen_height / 10)) {
+
+                  // myParams.y = 0 ;
+                  animator.start(screen_width / 2, -((screen_height / 2) - 150));
+                  ViewGroup.LayoutParams layoutParams = mViewIcon.getLayoutParams();
+                  layoutParams.width = (int) (0.18 * screen_width);
+                  layoutParams.height = (int) (0.18 * screen_width);
+                  mViewIcon.setLayoutParams(layoutParams);
+                  mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
+                  layout.setVisibility(View.INVISIBLE);
+               } else if (MathUtil.betweenExclusive((int) event.getRawY(), 9 * (screen_height / 10), screen_height)) {
+                  animator.start(screen_width / 2, screen_height / 2 - 150);
+                  ViewGroup.LayoutParams layoutParams = mViewIcon.getLayoutParams();
+                  layoutParams.width = (int) (0.18 * screen_width);
+                  layoutParams.height = (int) (0.18 * screen_width);
+                  mViewIcon.setLayoutParams(layoutParams);
+                  mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
+                  layout.setVisibility(View.INVISIBLE);
+               } else {
+                  animator.start(screen_width / 2, mIconviewParams.y);
+                  ViewGroup.LayoutParams layoutParams = mViewIcon.getLayoutParams();
+                  layoutParams.width = (int) (0.18 * screen_width);
+                  layoutParams.height = (int) (0.18 * screen_width);
+                  mViewIcon.setLayoutParams(layoutParams);
+                  mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
+                  layout.setVisibility(View.INVISIBLE);
+               }
+            } else if (MathUtil.betweenExclusive(mIconviewParams.x, -50, 50) && MathUtil.betweenExclusive(mIconviewParams.y, screen_height / 3, screen_height / 2)) {
+               Visibility();
+               stopSelf();
+            } else {
+               //not in either of the above cases
+               animator.start(screen_width / 2, mIconviewParams.y);
+               ViewGroup.LayoutParams layoutParams = mViewIcon.getLayoutParams();
+               layoutParams.width = (int) (0.18 * screen_width);
+               layoutParams.height = (int) (0.18 * screen_width);
+               mViewIcon.setLayoutParams(layoutParams);
+               mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
+               layout.setVisibility(View.INVISIBLE);
+            }
+            break;
+         case MotionEvent.ACTION_MOVE:
+            layout.setVisibility(View.VISIBLE);
+            mIconviewParams.x = initialX + (int) (event.getRawX() - initialTouchX);
+            mIconviewParams.y = initialY + (int) (event.getRawY() - initialTouchY);
+            mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
+            break;
+      }
+      return false;
+   }
+
    private void createLockView() {
       mViewLock = new MyGroupView(this);
       View view = View.inflate(this, R.layout.lock_fullview, mViewLock);
@@ -77,7 +342,7 @@ public class FloatingService extends Service implements View.OnTouchListener, Vi
 
    private void showIcon() {
       try {
-         mWindowManager.removeView(mViewLock);
+         mWindowManager.removeViewImmediate(mViewLock);
 
       }catch (Exception e)
       {
@@ -89,7 +354,7 @@ public class FloatingService extends Service implements View.OnTouchListener, Vi
 
    private void showLock() {
       try {
-         mWindowManager.removeView(mViewIcon);
+         mWindowManager.removeViewImmediate(mViewIcon);
 
       }catch (Exception e)
       {
@@ -99,89 +364,11 @@ public class FloatingService extends Service implements View.OnTouchListener, Vi
       state = TYPE_LOCK;
    }
 
-   @SuppressLint("ClickableViewAccessibility")
-   private void createIconView() {
-      mViewIcon = new MyGroupView(this);
-      View view = View.inflate(this, R.layout.view_icon, mViewIcon);
-      mViewIcon.setOnTouchListener(this);
-
-      imageButton = view.findViewById(R.id.imageButtonIcon);
-      imageButtonRemove = view.findViewById(R.id.imageButtonRemove);
-      imageButton.setOnClickListener(this);
-      imageButtonRemove.setOnClickListener(this);
-      imageButton.setOnTouchListener(this);
-
-      mIconviewParams = new WindowManager.LayoutParams();
-      mIconviewParams.width = WindowManager.LayoutParams.WRAP_CONTENT;
-      mIconviewParams.height = WindowManager.LayoutParams.WRAP_CONTENT;
-      mIconviewParams.gravity = Gravity.CENTER;
-      mIconviewParams.format = PixelFormat.TRANSLUCENT;
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-         mIconviewParams.type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
-      }
-      //mIconviewParams.flags = WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
-      mIconviewParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-
-   }
-   @Override
-   public boolean onTouch(View v, MotionEvent event) {
-      switch (event.getAction()){
-         case MotionEvent.ACTION_DOWN:
-            if(state == TYPE_ICON){
-               previousX = mIconviewParams.x;
-               previousY = mIconviewParams.y;
-            } else {
-               previousX = mLockviewParams.x;
-               previousY = mLockviewParams.y;
-            }
-            mStartX = event.getRawX();
-            mStartY = event.getRawY();
-            break;
-         case MotionEvent.ACTION_MOVE:
-            double deltaX =  event.getRawX() - mStartX;
-            double deltaY =  event.getRawY() - mStartY;
-
-            if(state == TYPE_ICON){
-               mIconviewParams.x = (int) (previousX + deltaX);
-               mIconviewParams.y = (int) (previousY + deltaY);
-               mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
-
-//               if (MathUtil.betweenExclusive((int) event.getRawX(), 0, screen_width / 5) || MathUtil.betweenExclusive((int) event.getRawX(), screen_width - (screen_width / 5), screen_width)) {
-//                  android.view.ViewGroup.LayoutParams layoutParams = imageButton.getLayoutParams();
-//                  layoutParams.width = (int) (0.18 * screen_width);
-//                  layoutParams.height = (int) (0.18 * screen_width);
-//                  imageButton.setLayoutParams(layoutParams);
-//                  mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
-//               } else if (MathUtil.betweenExclusive((int) event.getRawX(), 2 * (screen_width / 5), 3 * (screen_width / 5))) {
-//                  android.view.ViewGroup.LayoutParams layoutParams = imageButton.getLayoutParams();
-//                  layoutParams.width = (int) (0.18 * screen_width) + 100 + 100;
-//                  layoutParams.height = (int) (0.18 * screen_width) + 100 + 100;
-//                  imageButton.setLayoutParams(layoutParams);
-//                  mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
-//               } else if (MathUtil.betweenExclusive((int) event.getRawX(), screen_width / 5, 2 * (screen_width / 5)) || MathUtil.betweenExclusive((int) event.getRawX(), 3 * (screen_width / 5), screen_width)) {
-//                  android.view.ViewGroup.LayoutParams layoutParams = imageButton.getLayoutParams();
-//                  layoutParams.width = (int) (0.18 * screen_width) + 100;
-//                  layoutParams.height = (int) (0.18 * screen_width) + 100;
-//                  imageButton.setLayoutParams(layoutParams);
-//                  mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
-//
-//               }
-            }
-            break;
-         case MotionEvent.ACTION_OUTSIDE:
-            break;
-      }
-      return false;
-   }
    @Override
    public void onClick(View v) {
       switch (v.getId()){
          case R.id.imageButtonIcon:
             showLock();
-            break;
-         case R.id.imageButtonRemove:
-            stopSelf();
-            removeView();
             break;
          case R.id.btn_Exit:
             exitLock();
@@ -191,6 +378,62 @@ public class FloatingService extends Service implements View.OnTouchListener, Vi
       }
    }
 
+   private static class MathUtil {
+      public static boolean betweenExclusive(int x, int min, int max) {
+         return x > min && x < max;
+      }
+   }
+   private void getScreenSize() {
+      Display display = mWindowManager.getDefaultDisplay();
+      Point size = new Point();
+      display.getSize(size);
+      screen_width = size.x;
+      screen_height = size.y;
+
+   }
+   private class MoveAnimator implements Runnable {
+
+      private Handler handler = new Handler(Looper.getMainLooper());
+      private float destinationX;
+      private float destinationY;
+      private long startingTime;
+
+      private void start(float x, float y) {
+         this.destinationX = x;
+         this.destinationY = y;
+         startingTime = System.currentTimeMillis();
+         handler.post(this);
+      }
+
+      @Override
+      public void run() {
+         if (mViewIcon != null && mViewIcon.getParent() != null) {
+            float progress = Math.min(1, (System.currentTimeMillis() - startingTime) / 400f);
+
+            float deltaX = (destinationX - mIconviewParams.x) * progress;
+            float deltaY = (destinationY - mIconviewParams.y) * progress;
+            move(deltaX, deltaY);
+            if (progress < 1) {
+               handler.post(this);
+            }
+         }
+      }
+
+      private void stop() {
+         handler.removeCallbacks(this);
+      }
+   }
+   protected void move(float deltaX, float deltaY) {
+      mIconviewParams.x += deltaX;
+      mIconviewParams.y += deltaY;
+      mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
+   }
+   private void Visibility() {
+      if (mWindowManager != null) {
+         mWindowManager.removeViewImmediate(mViewIcon);
+         windowManagerClose.removeViewImmediate(layout);
+      }
+   }
    private void exitLock() {
       i++;
       Handler handler = new Handler();
@@ -209,12 +452,4 @@ public class FloatingService extends Service implements View.OnTouchListener, Vi
       }
    }
 
-   private void removeView() {
-      try {
-         mWindowManager.removeView(mViewIcon);
-      }
-      catch (Exception e){
-         e.printStackTrace();
-      }
-   }
 }
