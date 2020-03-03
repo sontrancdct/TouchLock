@@ -1,6 +1,7 @@
 package com.example.touchlock;
 
 import android.annotation.SuppressLint;
+import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -12,26 +13,28 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.view.Display;
 import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
-import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 
+import com.txusballesteros.bubbles.BubbleLayout;
+import com.txusballesteros.bubbles.BubblesManager;
+import com.txusballesteros.bubbles.OnInitializedCallback;
+
 public class FloatingService extends Service implements View.OnTouchListener, View.OnClickListener {
    private WindowManager mWindowManager, windowManagerClose;
-   private MyGroupView mViewIcon;
-   private MyGroupView mViewLock;
-   private WindowManager.LayoutParams mIconviewParams;
-   private WindowManager.LayoutParams mLockviewParams;
-   private WindowManager.LayoutParams _closeParams;
+   private MyGroupView mViewIcon, mViewLock;
+   private WindowManager.LayoutParams mIconviewParams, mLockviewParams, _closeParams;
 
    private ImageView close;
    private LinearLayout layout;
@@ -39,8 +42,7 @@ public class FloatingService extends Service implements View.OnTouchListener, Vi
    private Animation shake;
    private Context context;
 
-   private int screen_width;
-   private int screen_height;
+   private int screen_width, screen_height;
 
    private int state;
    private int i =0;
@@ -52,6 +54,8 @@ public class FloatingService extends Service implements View.OnTouchListener, Vi
    private int initialY;
    private float initialTouchX;
    private float initialTouchY;
+
+
 
    @Nullable
    @Override
@@ -71,7 +75,7 @@ public class FloatingService extends Service implements View.OnTouchListener, Vi
       }
       _closeParams.gravity = Gravity.BOTTOM | Gravity.CENTER;
       _closeParams.x = 0;
-      _closeParams.y = 100;
+      _closeParams.y = 200;
 
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
          mIconviewParams = new WindowManager.LayoutParams(
@@ -85,8 +89,8 @@ public class FloatingService extends Service implements View.OnTouchListener, Vi
       }
 
       mIconviewParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN;
-      mIconviewParams.x = screen_width / 2; // horizontal center for the image
-      mIconviewParams.y = 0;
+      mIconviewParams.x = screen_width / 2;
+      mIconviewParams.y = -screen_height / 3;
       mWindowManager.addView(mViewIcon, mIconviewParams);
 
       windowManagerClose.addView(layout, _closeParams);
@@ -103,6 +107,9 @@ public class FloatingService extends Service implements View.OnTouchListener, Vi
       getScreenSize();
       showFloating();
    }
+
+
+
 
    @SuppressLint("ClickableViewAccessibility")
    private void createIconFloating() {
@@ -297,7 +304,7 @@ public class FloatingService extends Service implements View.OnTouchListener, Vi
                   mWindowManager.updateViewLayout(mViewIcon, mIconviewParams);
                   layout.setVisibility(View.INVISIBLE);
                }
-            } else if (MathUtil.betweenExclusive(mIconviewParams.x, -50, 50) && MathUtil.betweenExclusive(mIconviewParams.y, screen_height / 3, screen_height / 2)) {
+            } else if (MathUtil.betweenExclusive(mIconviewParams.x, -50, 50) && MathUtil.betweenExclusive(mIconviewParams.y, screen_height / 5, screen_height / 2)) {
                Visibility();
                stopSelf();
             } else {
@@ -320,13 +327,43 @@ public class FloatingService extends Service implements View.OnTouchListener, Vi
       }
       return false;
    }
-
+   int clickCount = 0;
+   long startTime;
+   long duration;
+   static final int MAX_DURATION = 400;
+   @SuppressLint("ClickableViewAccessibility")
    private void createLockView() {
       mViewLock = new MyGroupView(this);
       View view = View.inflate(this, R.layout.lock_fullview, mViewLock);
+      
+      mViewLock.setOnTouchListener(new View.OnTouchListener() {
+         @Override
+         public boolean onTouch(View v, MotionEvent event) {
+            switch(event.getAction() & MotionEvent.ACTION_MASK)
+            {
+               case MotionEvent.ACTION_DOWN:
+                  startTime = System.currentTimeMillis();
+                  clickCount++;
+                  break;
+               case MotionEvent.ACTION_UP:
+                  long time = System.currentTimeMillis() - startTime;
+                  duration=  duration + time;
+                  if(clickCount == 3)
+                  {
+                     if(duration<= MAX_DURATION)
+                     {
+                        showIcon();
+                        Toast.makeText(FloatingService.this, "Thoát khóa !", Toast.LENGTH_SHORT).show();
+                     }
+                     clickCount = 0;
+                     duration = 0;
+                     break;
+                  }
+            }
+            return true;
+         }
+      });
 
-      Button btn_Exit = view.findViewById(R.id.btn_Exit);
-      btn_Exit.setOnClickListener(this);
 
       mLockviewParams = new WindowManager.LayoutParams();
       mLockviewParams.width = WindowManager.LayoutParams.MATCH_PARENT;
@@ -369,9 +406,7 @@ public class FloatingService extends Service implements View.OnTouchListener, Vi
       switch (v.getId()){
          case R.id.imageButtonIcon:
             showLock();
-            break;
-         case R.id.btn_Exit:
-            exitLock();
+            Toast.makeText(this, "Đã khóa cảm ứng !", Toast.LENGTH_SHORT).show();
             break;
             default:
                break;
@@ -432,23 +467,6 @@ public class FloatingService extends Service implements View.OnTouchListener, Vi
       if (mWindowManager != null) {
          mWindowManager.removeViewImmediate(mViewIcon);
          windowManagerClose.removeViewImmediate(layout);
-      }
-   }
-   private void exitLock() {
-      i++;
-      Handler handler = new Handler();
-      Runnable r = new Runnable() {
-         @Override
-         public void run() {
-            i = 0;
-         }
-      };
-      if (i == 1) {
-         //Single click
-         handler.postDelayed(r, 250);
-      } else if (i == 2) {
-         showIcon();
-         i = 0;
       }
    }
 

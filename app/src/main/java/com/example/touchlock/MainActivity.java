@@ -1,7 +1,9 @@
 package com.example.touchlock;
 
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.Toolbar;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 
@@ -9,24 +11,39 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.Service;
 import android.content.Intent;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
+import android.widget.Button;
+import android.widget.Toast;
+
+import com.txusballesteros.bubbles.BubbleLayout;
+import com.txusballesteros.bubbles.BubblesManager;
+import com.txusballesteros.bubbles.OnInitializedCallback;
 
 public class MainActivity extends AppCompatActivity {
    private static final int REQUEST_CODE_DRAW_OVERLAY_PERMISSION = 5;
 
    private String CHANNEL_ID;
+   private BubblesManager bubblesManager;
 
 
    @Override
    protected void onCreate(Bundle savedInstanceState) {
       super.onCreate(savedInstanceState);
       setContentView(R.layout.activity_main);
+
+      Toolbar toolbar =  findViewById(R.id.toolbar);
+      setSupportActionBar(toolbar);
+      ActionBar actionBar = getSupportActionBar();
 
       findViewById(R.id.button_start).setOnClickListener(new View.OnClickListener() {
          @Override
@@ -43,6 +60,21 @@ public class MainActivity extends AppCompatActivity {
             }
          }
       });
+
+
+   }
+
+   @Override
+   public boolean onCreateOptionsMenu(Menu menu) {
+      getMenuInflater().inflate(R.menu.option_menu, menu);
+      return true;
+   }
+
+
+   @Override
+   public boolean onOptionsItemSelected(MenuItem item) {
+      //..
+      return super.onOptionsItemSelected(item);
    }
    private void createNotificationChannel() {
       CharSequence channelName = CHANNEL_ID;
